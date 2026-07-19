@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: huerto_db
+    environment:
+      POSTGRES_USER: huerto_user
+      POSTGRES_PASSWORD: huerto_pass
+      POSTGRES_DB: huerto_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - huerto_network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: huerto_backend
+    environment:
+      DATABASE_URL: postgresql://huerto_user:huerto_pass@db:5432/huerto_db
+      AEMET_API_KEY: ${AEMET_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - huerto_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  huerto_network:
+    driver: bridge
