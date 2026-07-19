@@ -55,3 +55,19 @@ class AsignacionCultivo(Base):
 
     cajon = relationship("Cajon", backref="asignaciones")
     cultivo = relationship("Cultivo", backref="asignaciones")
+
+
+class Clima(Base):
+    __tablename__ = "clima"
+    id = Column(Integer, primary_key=True, index=True)
+    huerto_id = Column(Integer, ForeignKey("huerto.id"), nullable=False)
+    fecha = Column(Date, nullable=False)
+    temperatura_min = Column(Decimal(4, 1))  # °C
+    temperatura_max = Column(Decimal(4, 1))  # °C
+    humedad_relativa = Column(Decimal(4, 1))  # %
+    precipitacion = Column(Decimal(6, 2))  # mm
+    velocidad_viento = Column(Decimal(5, 1))  # km/h
+    direccion_viento = Column(String(20))  # ej: "N", "NE"
+    radiacion_solar = Column(Decimal(6, 2))  # W/m² (opcional)
+
+    huerto = relationship("Huerto", backref="climas")

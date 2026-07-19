@@ -3,7 +3,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import date
+from datetime import date, datetime
+import requests
+import os
 
 from . import models, config
 
@@ -121,6 +123,34 @@ class AsignacionCultivoResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ClimaResponse(BaseModel):
+    id: int
+    huerto_id: int
+    fecha: date
+    temperatura_min: float
+    temperatura_max: float
+    humedad_relativa: float
+    precipitacion: float
+    velocidad_viento: float
+    direccion_viento: str
+    radiacion_solar: Optional[float]
+
+    class Config:
+        from_attributes = True
+
+
+class ClimaCreate(BaseModel):
+    huerto_id: int = Field(..., description="ID del huerto")
+    fecha: date = Field(..., description="Fecha de los datos climáticos")
+    temperatura_min: float = Field(..., description="Temperatura mínima (°C)")
+    temperatura_max: float = Field(..., description="Temperatura máxima (°C)")
+    humedad_relativa: float = Field(..., description="Humedad relativa (%)")
+    precipitacion: float = Field(..., description="Precipitación (mm)")
+    velocidad_viento: float = Field(..., description="Velocidad del viento (km/h)")
+    direccion_viento: str = Field(..., description="Dirección del viento (ej: N, NE)")
+    radiacion_solar: Optional[float] = Field(None, description="Radiación solar (W/m²)")
 
 
 # --- Endpoints Huerto ---
@@ -260,3 +290,122 @@ def obtener_asignacion(asignacion_id: int, db: Session = Depends(get_db)):
     if not asignacion:
         raise HTTPException(status_code=404, detail="Asignación no encontrada")
     return asignacion
+
+
+# --- Endpoints Clima ---
+@app.post("/clima/", response_model=ClimaResponse, status_code=status.HTTP_201_CREATED)
+def crear_clima(clima: ClimaCreate, db: Session = Depends(get_db)):
+    db_clima = models.Clima(**clima.model_dump())
+    db.add(db_clima)
+    db.commit()
+    db.refresh(db_clima)
+    return db_clima
+
+
+@app.get("/clima/", response_model=List[ClimaResponse])
+def listar_clima(db: Session = Depends(get_db)):
+    return db.query(models.Clima).all()
+
+
+@app.get("/clima/huerto/{huerto_id}", response_model=List[ClimaResponse])
+def listar_clima_por_huerto(huerto_id: int, db: Session = Depends(get_db)):
+    return db.query(models.Clima).filter(models.Clima.huerto_id == huerto_id).all()
+
+
+@app.get("/clima/aemet/{municipio}")
+def obtener_clima_aemet(municipio: str):
+    """
+    Obtiene datos climáticos de AEMET para un municipio.
+    Requiere la clave API de AEMET en .env (AEMET_API_KEY).
+    """
+    # Mapeo de municipios a códigos AEMET (ejemplos)
+    # TODO: Ampliar esta lista o usar la API de AEMET para buscar códigos
+    codigos_municipios = {
+        "madrid": "28079",
+        "barcelona": "08019",
+        "valencia": "46250",
+        "sevilla": "41091",
+        "bilbao": "48020",
+        "malaga": "29067",
+        "zaragoza": "50297",
+        "alicante": "03014",
+        "cadiz": "11012",
+        "coruna": "15030",
+    }
+    
+    # Normalizar el municipio (minúsculas, sin tildes)
+    municipio_normalizado = municipio.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    
+    if municipio_normalizado not in codigos_municipios:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Municipio '{municipio}' no soportado. Usa uno de: {list(codigos_municipios.keys())}"
+        )
+    
+    codigo_municipio = codigos_municipios[municipio_normalizado]
+    api_key = config.settings.AEMET_API_KEY
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Clave API de AEMET no configurada. Añade AEMET_API_KEY a tu .env"
+        )
+    
+    # URL de la API de AEMET para predicción por municipio
+    url = f"https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/{codigo_municipio}/"
+    
+    try:
+        # Primera llamada para obtener el endpoint real (AEMET usa redirección)
+        headers = {"api_key": api_key}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        # La respuesta contiene un JSON con el endpoint real
+        data = response.json()
+        if "datos" not in data:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error en la respuesta de AEMET: {data}"
+            )
+        
+        # Obtener los datos reales
+        datos_url = data["datos"]
+        datos_response = requests.get(datos_url)
+        datos_response.raise_for_status()
+        clima_data = datos_response.json()
+        
+        # Extraer información relevante (simplificado para el MVP)
+        # La estructura de AEMET es compleja, aquí extraemos el primer día
+        if "prediccion" not in clima_data or "dia" not in clima_data["prediccion"]:
+            raise HTTPException(
+                status_code=500,
+                detail="Formato de datos de AEMET no esperado"
+            )
+        
+        primer_dia = clima_data["prediccion"]["dia"][0]
+        
+        # Extraer datos climáticos
+        temperatura_min = primer_dia.get("temperatura", {}).get("minima", 0)
+        temperatura_max = primer_dia.get("temperatura", {}).get("maxima", 0)
+        humedad_relativa = primer_dia.get("humedadRelativa", {}).get("maxima", 0)
+        precipitacion = primer_dia.get("precipitacion", [{}])[0].get("value", 0) if isinstance(primer_dia.get("precipitacion"), list) else 0
+        velocidad_viento = primer_dia.get("viento", [{}])[0].get("velocidad", 0) if isinstance(primer_dia.get("viento"), list) else 0
+        direccion_viento = primer_dia.get("viento", [{}])[0].get("direccion", "N") if isinstance(primer_dia.get("viento"), list) else "N"
+        
+        return {
+            "municipio": municipio,
+            "fecha": primer_dia.get("fecha", ""),
+            "temperatura_min": temperatura_min,
+            "temperatura_max": temperatura_max,
+            "humedad_relativa": humedad_relativa,
+            "precipitacion": precipitacion,
+            "velocidad_viento": velocidad_viento,
+            "direccion_viento": direccion_viento,
+            "fuente": "AEMET"
+        }
+        
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al conectar con AEMET: {str(e)}"
+        )
