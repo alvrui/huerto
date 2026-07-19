@@ -5,6 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Huerto Urbano</title>
+    <script>
+      // Configurar la URL base de la API según el entorno
+      window.__API_BASE_URL__ = window.location.hostname === 'localhost' && window.location.port === '3000'
+        ? 'http://localhost:8000'
+        : 'http://backend:8000';
+    </script>
   </head>
   <body>
     <div id="root"></div>

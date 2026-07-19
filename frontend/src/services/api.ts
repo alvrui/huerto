@@ -1,8 +1,11 @@
 import axios from 'axios';
 
+// Obtener la URL base de la API desde la variable global (configurada en index.html)
+const apiBaseUrl = (window as any).__API_BASE_URL__ || '/api';
+
 // Configuración base de Axios
 const api = axios.create({
-  baseURL: '/api', // Proxy configurado en vite.config.ts
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

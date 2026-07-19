@@ -12,11 +12,17 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // Proxy solo para desarrollo (no afecta a Docker)
     proxy: {
       '/api': {
-        target: 'http://backend:8000',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       },
     },
+  },
+  // Configuración para producción (build)
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
   },
 })
