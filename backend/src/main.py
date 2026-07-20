@@ -9,6 +9,7 @@ import requests
 import os
 
 from . import models, config
+from .seed_db import seed_database
 
 # Crear engine de SQLAlchemy
 engine = create_engine(config.settings.DATABASE_URL)
@@ -16,6 +17,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Crear tablas (solo para desarrollo)
 models.Base.metadata.create_all(bind=engine)
+
+# Cargar datos iniciales si la base de datos está vacía
+with Session(engine) as db:
+    seed_database(db)
 
 app = FastAPI(title="Huerto API", version="0.1.0")
 
